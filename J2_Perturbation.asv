@@ -1,0 +1,179 @@
+function J2_Perturbation
+% This function solves AE502 HW2.3
+% The perturbation equations from Conway are integrated using ode45 
+% to determine the J2 perturbation
+
+% subfunctions: TAfromM, dydt
+
+close all; clear all; clc
+
+%...Constants:
+global mu R J2
+mu = 3.986e6; % Earth GM gravitational parameter (km3/s2)
+R = 6370;     % Earth Radius (km)
+J2 = 0.00108;   % Earth J2
+
+d2s = 24*60*60; %days to seconds
+
+% Initial values
+% given:
+a_0 = 26600;  % semimajor axis (km)
+i_0 = 1.10654;  % inclination (rads)
+e_0 = 0.74; % eccentricity
+w_0= deg2rad(5);   % Argument of periapse (rads)
+W_0= deg2rad(90); % Longitude of ascending node (rads)
+M_0 = deg2rad(10);  % Mean anomaly (rads)
+% calculated:
+T_0 = 2*pi*(a_0^3/mu)^0.5;    % orbital period (s)
+f_0 = TAfromM(M_0,e_0); %true anomaly (rads) calculated from mean anomaly
+
+%...Use ODE45 to integrate the perturbation eqns from t_0 to t_f
+t_0= 0;
+t_f= 100*d2s; %100 days in seconds
+n_out= 10000;%number of pts to integrate
+tspan= linspace(t_0, t_f, n_out);
+options = odeset(...
+    'RelTol',1.e-8, ...
+    'AbsTol',1.e-8, ...
+    'InitialStep', T_0/1000);
+[t,y]= ode45(@dydt, tspan, [a_0;e_0;W_0;i_0;w_0;f_0]);
+a= y(:,1);
+e= y(:,2);
+W= y(:,3);
+i= y(:,4);
+w= y(:,5);
+f= y(:,6);
+%...Plot the time histories of the osculating elements:
+x = t/d2s;
+figure(1)
+subplot(5,1,1)
+y = deg2rad(W-W_0);
+plot(x,y)
+hold on
+%calculate and plot polyfit line
+p = polyfit(x,y,1);
+plot(x,polyval(p,x))
+hold off
+title('\Delta Longitude of Ascending Node (degrees)')
+xlabel('days')
+grid on
+grid minor
+axis tight
+subplot(5,1,2)
+y = deg2rad(w-w_0);
+plot(x,y)
+hold on
+%calculate and plot polyfit line
+p = polyfit(x,y,1);
+plot(x,polyval(p,x))
+hold off
+title('\Delta Argument of Periapse (degrees)')
+xlabel('days')
+grid on
+grid minor
+axis tight
+subplot(5,1,3)
+y = deg2rad(a-a_0);
+plot(x,y)
+hold on
+%calculate and plot polyfit line
+p = polyfit(x,y,1);
+plot(x,polyval(p,x))
+hold off
+title('\Delta Semimajor Axis (km)')
+xlabel('days')
+grid on
+grid minor
+axis tight
+subplot(5,1,4)
+y = deg2rad(e-e_0);
+plot(x,y)
+hold on
+%calculate and plot polyfit line
+p = polyfit(x,y,1);
+plot(x,polyval(p,x))
+hold off
+title('\Delta Eccentricity')
+xlabel('days')
+grid on
+grid minor
+axis tight
+subplot(5,1,5)
+y = deg2rad(i-i_0);
+plot(x,y)
+hold on
+%calculate and plot polyfit line
+p = polyfit(x,y,1);
+plot(x,polyval(p,x))
+hold off
+title('\Delta Inclination (degrees)')
+xlabel('days')
+grid on
+grid minor
+axis tight
+
+%...Subfunctions:
+    function TA = TAfromM(M,e)
+        %this function finds true anomaly from
+        %mean anomaly using Keplers eqn and Newton's method
+
+        %...Set an error tolerance and a limit on the number of iterations:
+        error = 1.0e-8;
+        nMax = 1.0e3;
+        %...Starting value for E_0:
+        u = M+e;
+        E = (M*(1-sin(u))+u*sin(M))/(1+sin(M)-sin(u));
+
+        n = 0;
+        F_dFdE = 1;
+        while abs(F_dFdE) > error && n <= nMax
+            n = n + 1;
+            F = E - e*sin(E)-M;    %kepler eqn
+            dFdE = 1-e*cos(E);
+            F_dFdE = F/dFdE;
+            %Newton's method
+            E = E - F_dFdE;
+        end
+        %...Deliver a value for x, but report that nMax was reached:
+        if n > nMax
+            %fprintf('**No. iterations of Keplers equation = %g', n)
+            fprintf('Max iterations reached, F/dFdx = %g\n', F_dFdx)
+        end
+
+        TA = 2*atan((1+e)/(1-e)^0.5*tan(E/2));
+    end %TAfromM
+
+    function dydt = dydt(t,y)
+        % This function calculates the time rates of the orbital elements
+        % from Gauss’s variational equations (Equations 12.89).
+        %-------------------------------------------------------------------------
+        %...The orbital elements at time t:
+        a= y(1);
+        e= y(2);
+        W= y(3);
+        i= y(4);
+        w= y(5);
+        f= y(6);
+
+        p = a*(1-e^2);  % semi-latus rectum or parameter
+        h = (mu*p)^.5; %specific angular momentum
+        r= p/(1 + e*cos(f)); %position magnitude
+        u= w + f;        %Argument of latitude
+        %E=acos((1-r/a)/e);
+
+        F_J2 = (-3*mu*J2*R^2/r^4)*...
+            [1/2-3*sin(i)^2*sin(u)^2/2;...
+            sin(i)^2*sin(u)*cos(u);...
+            sin(i)*sin(u)*cos(i)];
+
+        dadt = 2*a^2/mu* [mu*e*sin(f)/h h/r 0]*F_J2;
+        dedt = (p*mu^-1)^.5*[sin(f) (cos(f)+(1-r/a)/e) 0]*F_J2;
+        didt = (h/mu)^.5*cos(u)/(1+e*cos(f))*[0 0 1]*F_J2;
+        dWdt = (h/mu)^.5*sin(u)/(sin(i)*(1+e*cos(f)))*[0 0 1]*F_J2;
+        dwdt = -dWdt*cos(i)+1/e*(p/mu)^.5*[-cos(f) sin(f)*(2+e*cos(f))/(1+e*cos(f)) 0]*F_J2;
+        dfdt = h/r^2 - dwdt;
+
+        dydt=[dadt dedt dWdt didt dwdt dfdt]';
+    end %dydt
+
+end %J2_Pert_Gauss
